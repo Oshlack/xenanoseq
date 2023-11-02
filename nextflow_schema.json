@@ -314,7 +314,26 @@
             "type": "object",
             "fa_icon": "fas fa-dna",
             "description": "Reference genome related files and options required for the workflow.",
-            "properties": {
+             "required": ["primary","secondary"],
+              "properties": {
+ "primary": {
+                    "type": "string",
+                    "description": "Genome in samplesheet that is the primary (graft) for sample",
+                    "format": "sample-type",
+                    "mimetype": "text/csv",
+                    "schema": "assets/schema_input.json",
+                    "help_text": "This must exist in samplsheet",
+                    "fa_icon": "fas fa-dna"
+                },
+ "secondary": {
+                    "type": "string",
+                    "description": "Genome in samplesheet that is the secondary (host) for sample",
+                    "format": "sample-type",
+                    "mimetype": "text/csv",
+                    "schema": "assets/schema_input.json",
+                    "help_text": "This must exist in samplsheet",
+                    "fa_icon": "fas fa-dna"
+                },
                 "igenomes_base": {
                     "type": "string",
                     "format": "directory-path",
