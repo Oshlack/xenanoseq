@@ -106,6 +106,7 @@ include { QCAT                  } from '../modules/local/qcat'
 include { BAM_RENAME            } from '../modules/local/bam_rename'
 include { BAMBU                 } from '../modules/local/bambu'
 include { MULTIQC               } from '../modules/local/multiqc'
+include { XENOMAPPER            } from '../modules/local/xenomapper'
 
 /*
  * SUBWORKFLOW: Consisting of a mix of local and nf-core/modules
@@ -117,6 +118,7 @@ include { QCFASTQ_NANOPLOT_FASTQC          } from '../subworkflows/local/qcfastq
 include { ALIGN_GRAPHMAP2                  } from '../subworkflows/local/align_graphmap2'
 include { ALIGN_MINIMAP2                   } from '../subworkflows/local/align_minimap2'
 include { BAM_SORT_INDEX_SAMTOOLS          } from '../subworkflows/local/bam_sort_index_samtools'
+include { BAM_SORT_NAME_SAMTOOLS           } from '../subworkflows/local/bam_sort_name_index_samtools'
 include { SHORT_VARIANT_CALLING            } from '../subworkflows/local/short_variant_calling'
 include { STRUCTURAL_VARIANT_CALLING       } from '../subworkflows/local/structural_variant_calling'
 include { BEDTOOLS_UCSC_BIGWIG             } from '../subworkflows/local/bedtools_ucsc_bigwig'
@@ -285,7 +287,9 @@ workflow NANOSEQ{
         * SUBWORKFLOW: View, then  sort, and index bam files
         */
         BAM_SORT_INDEX_SAMTOOLS ( ch_align_sam, params.call_variants, ch_fasta )
+        BAM_SORT_NAME_SAMTOOLS ( ch_align_sam, params.call_variants, ch_fasta )
         ch_view_sortbam = BAM_SORT_INDEX_SAMTOOLS.out.sortbam
+        ch_view_sortbam_name = BAM_SORT_NAME_SAMTOOLS.out.sortbam
         ch_software_versions = ch_software_versions.mix(BAM_SORT_INDEX_SAMTOOLS.out.samtools_versions.first().ifEmpty(null))
         ch_samtools_multiqc  = BAM_SORT_INDEX_SAMTOOLS.out.sortbam_stats_multiqc.ifEmpty([])
 
@@ -331,6 +335,9 @@ workflow NANOSEQ{
         ch_view_sortbam
             .map { it -> [ it[0], it[3] ] }
             .set { ch_sortbam }
+        ch_view_sortbam_name
+            .map { it -> [ it[0], it[3] ] }
+            .set { ch_sortbam_name }
         ch_view_sortbam
             .map { it -> [ it[0], it[3], it[4] ] }
             .set { ch_nanopolish_sortbam }
@@ -342,6 +349,33 @@ workflow NANOSEQ{
         ch_sortbam = BAM_RENAME.out.bam
     }
 
+
+
+    //XENOMAPPER ( ch_sortbam.collect{ it [1] })
+
+
+
+   // group bams into human/mouse pairs from samplesheet
+  // TODO remove second mappings and do inline
+
+ch_sortbam_split = Channel.empty()
+
+   ch_sortbam_name.branch{
+            human: it[0].id.contains('_human')
+            mouse: it[0].id.contains('_mouse')
+
+}.set{ch_sortbam_split}
+
+
+ch_sortbam_split.human.map { it -> [it[0].id.replace("_human",""), it] }.set{ch_sortbam_human}
+ch_sortbam_split.mouse.map { it -> [it[0].id.replace("_mouse",""), it] }.set{ch_sortbam_mouse}
+
+
+
+
+
+   XENOMAPPER ( ch_sortbam_human.join(ch_sortbam_mouse).map{ it.flatten() }) 
+    
     ch_featurecounts_gene_multiqc       = Channel.empty()
     ch_featurecounts_transcript_multiqc = Channel.empty()
     if (!params.skip_quantification && (params.protocol == 'cDNA' || params.protocol == 'directRNA')) {
