@@ -9,6 +9,5 @@ From: continuumio/miniconda3
     conda install -y -c conda-forge ncurses
     conda install -y samtools
 
-    pip install xenomapper
-
+    pip3 install git+https://github.com/genomematt/xenomapper2.git
 
