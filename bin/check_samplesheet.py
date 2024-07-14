@@ -137,6 +137,7 @@ def check_samplesheet(file_in, updated_path, file_out):
                                     if not basecalled_fastq[0].endswith(".fq.gz"):
                                         print_error('basecalled fastq input does not end with ".fastq.gz" or ".fq.gz"')
                         else:
+                            print("here")
                             print_error(
                                 'path does not end with ".fastq.gz", ".fq.gz", or ".bam" and is not an existing directory with correct fast5 and/or fastq inputs.'
                             )

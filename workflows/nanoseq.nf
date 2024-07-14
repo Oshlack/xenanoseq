@@ -105,7 +105,9 @@ include { GET_NANOLYSE_FASTA    } from '../modules/local/get_nanolyse_fasta'
 include { QCAT                  } from '../modules/local/qcat'
 include { BAM_RENAME            } from '../modules/local/bam_rename'
 include { BAMBU                 } from '../modules/local/bambu'
+include { BAMBU_XENO            } from '../modules/local/bambu_xeno'
 include { MULTIQC               } from '../modules/local/multiqc'
+include { XENOMAPPER            } from '../modules/local/xenomapper'
 
 /*
  * SUBWORKFLOW: Consisting of a mix of local and nf-core/modules
@@ -117,6 +119,8 @@ include { QCFASTQ_NANOPLOT_FASTQC          } from '../subworkflows/local/qcfastq
 include { ALIGN_GRAPHMAP2                  } from '../subworkflows/local/align_graphmap2'
 include { ALIGN_MINIMAP2                   } from '../subworkflows/local/align_minimap2'
 include { BAM_SORT_INDEX_SAMTOOLS          } from '../subworkflows/local/bam_sort_index_samtools'
+include { BAM_SORT_INDEX_SAMTOOLS as BAM_SORT_INDEX_SAMTOOLS_XENO          } from '../subworkflows/local/bam_sort_index_samtools'
+include { BAM_SORT_NAME_SAMTOOLS           } from '../subworkflows/local/bam_sort_name_index_samtools'
 include { SHORT_VARIANT_CALLING            } from '../subworkflows/local/short_variant_calling'
 include { STRUCTURAL_VARIANT_CALLING       } from '../subworkflows/local/structural_variant_calling'
 include { BEDTOOLS_UCSC_BIGWIG             } from '../subworkflows/local/bedtools_ucsc_bigwig'
@@ -285,7 +289,9 @@ workflow NANOSEQ{
         * SUBWORKFLOW: View, then  sort, and index bam files
         */
         BAM_SORT_INDEX_SAMTOOLS ( ch_align_sam, params.call_variants, ch_fasta )
+        BAM_SORT_NAME_SAMTOOLS ( ch_align_sam, params.call_variants, ch_fasta )
         ch_view_sortbam = BAM_SORT_INDEX_SAMTOOLS.out.sortbam
+        ch_view_sortbam_name = BAM_SORT_NAME_SAMTOOLS.out.sortbam
         ch_software_versions = ch_software_versions.mix(BAM_SORT_INDEX_SAMTOOLS.out.samtools_versions.first().ifEmpty(null))
         ch_samtools_multiqc  = BAM_SORT_INDEX_SAMTOOLS.out.sortbam_stats_multiqc.ifEmpty([])
 
@@ -331,6 +337,9 @@ workflow NANOSEQ{
         ch_view_sortbam
             .map { it -> [ it[0], it[3] ] }
             .set { ch_sortbam }
+        ch_view_sortbam_name
+            .map { it -> [ it[0], it[3] ] }
+            .set { ch_sortbam_name }
         ch_view_sortbam
             .map { it -> [ it[0], it[3], it[4] ] }
             .set { ch_nanopolish_sortbam }
@@ -341,6 +350,98 @@ workflow NANOSEQ{
         BAM_RENAME ( ch_sample_bam )
         ch_sortbam = BAM_RENAME.out.bam
     }
+
+
+
+    //XENOMAPPER ( ch_sortbam.collect{ it [1] })
+
+
+
+   // group bams into human/mouse pairs from samplesheet
+  // TODO remove second mappings and do inline
+
+ch_sortbam_split = Channel.empty()
+
+   ch_sortbam_name.branch{
+            human: it[0].id.contains('_human')
+            mouse: it[0].id.contains('_mouse')
+
+}.set{ch_sortbam_split}
+
+
+ch_sortbam_split.human.map { it -> [it[0].id.replace("_human",""), it] }.set{ch_sortbam_human}
+ch_sortbam_split.mouse.map { it -> [it[0].id.replace("_mouse",""), it] }.set{ch_sortbam_mouse}
+
+
+
+
+
+   XENOMAPPER ( ch_sortbam_human.join(ch_sortbam_mouse).map{ it.flatten() }) 
+
+
+	// nto be compatible with rest of workflow, isolated sam files need to have same tuple format
+	//    tuple val(meta), path(sizes), val(is_transcripts), path("*.sam"), emit: align_sam
+
+
+	//get sams and keep meta
+
+	// meta, sam
+    ch_human_sams  = Channel.empty()
+    align_extras = Channel.empty()
+         XENOMAPPER.out.xenomapped_sams.map { it -> [it[0], it.tail().flatten()]}.set{ch_human_sams}
+
+	ch_align_sam.map{ it -> [ it[0], it[1], it[2]]}.set{align_extras}
+
+		ch_human_sams.transpose().join(align_extras).set{ch_human_sams_tuple}
+
+		//.branch{
+		//human: it.toString().contains("human")}.set{ch_human_sams}
+		
+
+    //ch_human_multi_bams  = Channel.empty()
+     //    XENOMAPPER.out.xenomapped_sams.map { it -> it[1..]}.branch{
+//		human: it.toString().contains("human_multi")}.set(ch_human_multi_bams)
+	// take xneomapped sams and concert to bam
+
+
+         ch_human_sams_tuple.map{ it -> [it[0], it[2], it[3], it[1]]}.set{ch_human_sams_tuple_reordered}
+
+   ch_human_sams_tuple_reordered.branch{
+            human: it[3].toString().contains('.human.sam')
+            human_multi: it[3].toString().contains('.human_multi.sam')
+            mouse: it[3].toString().contains('.mouse.sam')
+            mouse_multi: it[3].toString().contains('.mouse_multi.sam')
+            unassigned: it[3].toString().contains('.unassigned.sam')
+            unresolved: it[3].toString().contains('.unresolved.sam')
+}.set{ch_human_sams_tuple_reordered_branched}
+
+
+//remap meta ID to get unique value
+//ch_human_sams_tuple_reordered_branched.human.map { it ->  [it[0].id  = it[0].id.replace("_human","_human_only.xeno"), it.tail()] }.set{ch_human_sams_tuple_reordered_branched_id_human}
+//{ meta, other -> {  meta[key] = value ; return [ meta, other ] } }
+ch_human_sams_tuple_reordered_branched.human.map { 
+		it ->  { 
+		 def meta_new = it[0].clone()
+		 meta_new.id   = it[0].id.replace("_human","_human_only.xeno") ; 
+		 return [meta_new, it.tail()]
+		}
+	}.set{ch_human_sams_tuple_reordered_branched_id_human}
+// def dup = meta.clone()
+//            dup.id = 'foo'
+//            dup
+
+
+        //BAM_SORT_INDEX_SAMTOOLS_XENO (ch_human_sams_tuple.map{ it -> [it[0], it[0], it[2], it[3], it[1]]} ,  params.call_variants, ch_fasta )
+        //BAM_SORT_INDEX_SAMTOOLS_XENO (ch_human_sams_tuple_reordered_branched.human,  params.call_variants, ch_fasta )
+        //BAM_SORT_INDEX_SAMTOOLS_XENO (ch_human_sams,  params.call_variants, ch_fasta )
+        BAM_SORT_INDEX_SAMTOOLS_XENO (ch_human_sams_tuple_reordered_branched_id_human.map{ it -> it.flatten()},  params.call_variants, ch_fasta )
+
+
+        BAM_SORT_INDEX_SAMTOOLS_XENO.out.sortbam 
+            .map { it -> [ it[0], it[3] ] }
+            .set { ch_sortbam_xeno }
+
+
 
     ch_featurecounts_gene_multiqc       = Channel.empty()
     ch_featurecounts_transcript_multiqc = Channel.empty()
@@ -367,10 +468,32 @@ workflow NANOSEQ{
                 .unique()
                 .set { ch_sample_annotation }
 
+	// need to match sample annotation to the primary only
+            ch_sample
+                .map { it -> [ it[2], it[3] ]}
+                .unique()
+    		.filter{ fasta_files, gtf_files -> fasta_files =~/params.primary/ }
+                .set { ch_sample_annotation_xeno }
+
+
+	primary_pattern = params.primary
+
+	fastas.flatten().filter( ~/.*sapien.*/ ).set{fastas_primary}
+	gtfs.flatten().filter( ~/.*sapien.*/ ).set{gtfs_primary}
+	//gtfs.filter{ ~/.*primary_pattern.*}/ }.set{gtfs_primary}
+
+		//record -> record.id =~ /^ENST0.*/ 
+
+	//fastas.filter{  it.contains(params.primary) }.set{fastas_primary}
+	//fastas.filter { it -> it.toString().contains(params.primary) }.set{fastas_primary}
+	//gtfs.filter{ it -> it.toString().contains(params.primary) }.set{gtfs_primary}
+	//fastas.filter { it.toString().contains(params.primary) }.set{fastas_primary}
+	//gtfs.filter{ it.toString().contains(params.primary) }.set{gtfs_primary}
             /*
              * MODULE: Quantification and novel isoform detection with bambu
              */
             BAMBU ( ch_sample_annotation, ch_sortbam.collect{ it [1] } )
+            BAMBU_XENO ( fastas_primary.merge(gtfs_primary), ch_sortbam_xeno.collect{ it [1] } )
             ch_gene_counts       = BAMBU.out.ch_gene_counts
             ch_transcript_counts = BAMBU.out.ch_transcript_counts
             ch_software_versions = ch_software_versions.mix(BAMBU.out.versions.first().ifEmpty(null))
