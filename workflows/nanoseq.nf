@@ -378,7 +378,6 @@ ch_sortbam_split.mouse.map { it -> [it[0].id.replace("_mouse",""), it] }.set{ch_
 
    XENOMAPPER ( ch_sortbam_human.join(ch_sortbam_mouse).map{ it.flatten() }) 
 
-
 	// nto be compatible with rest of workflow, isolated sam files need to have same tuple format
 	//    tuple val(meta), path(sizes), val(is_transcripts), path("*.sam"), emit: align_sam
 
@@ -440,6 +439,7 @@ ch_human_sams_tuple_reordered_branched.human.map {
         BAM_SORT_INDEX_SAMTOOLS_XENO.out.sortbam 
             .map { it -> [ it[0], it[3] ] }
             .set { ch_sortbam_xeno }
+
 
 
 
