@@ -121,6 +121,9 @@ include { ALIGN_MINIMAP2                   } from '../subworkflows/local/align_m
 include { BAM_SORT_INDEX_SAMTOOLS          } from '../subworkflows/local/bam_sort_index_samtools'
 include { BAM_SORT_INDEX_SAMTOOLS as BAM_SORT_INDEX_SAMTOOLS_XENO          } from '../subworkflows/local/bam_sort_index_samtools'
 include { BAM_SORT_NAME_SAMTOOLS           } from '../subworkflows/local/bam_sort_name_index_samtools'
+include { BAM_SORT_INDEX_SAMTOOLS_FROM_BAM          } from '../subworkflows/local/bam_sort_index_samtools_from_bam'
+include { BAM_SORT_INDEX_SAMTOOLS_FROM_BAM as BAM_SORT_INDEX_SAMTOOLS_XENO_FROM_BAM          } from '../subworkflows/local/bam_sort_index_samtools_from_bam'
+include { BAM_SORT_NAME_SAMTOOLS_FROM_BAM           } from '../subworkflows/local/bam_sort_name_index_samtools_from_bam'
 include { SHORT_VARIANT_CALLING            } from '../subworkflows/local/short_variant_calling'
 include { STRUCTURAL_VARIANT_CALLING       } from '../subworkflows/local/structural_variant_calling'
 include { BEDTOOLS_UCSC_BIGWIG             } from '../subworkflows/local/bedtools_ucsc_bigwig'
@@ -385,13 +388,13 @@ ch_sortbam_split.mouse.map { it -> [it[0].id.replace("_mouse",""), it] }.set{ch_
 	//get sams and keep meta
 
 	// meta, sam
-    ch_human_sams  = Channel.empty()
+    ch_human_bams  = Channel.empty()
     align_extras = Channel.empty()
-         XENOMAPPER.out.xenomapped_sams.map { it -> [it[0], it.tail().flatten()]}.set{ch_human_sams}
+         XENOMAPPER.out.xenomapped_bams.map { it -> [it[0], it.tail().flatten()]}.set{ch_human_bams}
 
 	ch_align_sam.map{ it -> [ it[0], it[1], it[2]]}.set{align_extras}
 
-		ch_human_sams.transpose().join(align_extras).set{ch_human_sams_tuple}
+		ch_human_bams.transpose().join(align_extras).set{ch_human_bams_tuple}
 
 		//.branch{
 		//human: it.toString().contains("human")}.set{ch_human_sams}
@@ -403,28 +406,28 @@ ch_sortbam_split.mouse.map { it -> [it[0].id.replace("_mouse",""), it] }.set{ch_
 	// take xneomapped sams and concert to bam
 
 
-         ch_human_sams_tuple.map{ it -> [it[0], it[2], it[3], it[1]]}.set{ch_human_sams_tuple_reordered}
+         ch_human_bams_tuple.map{ it -> [it[0], it[2], it[3], it[1]]}.set{ch_human_bams_tuple_reordered}
 
-   ch_human_sams_tuple_reordered.branch{
-            human: it[3].toString().contains('.human.sam')
-            human_multi: it[3].toString().contains('.human_multi.sam')
-            mouse: it[3].toString().contains('.mouse.sam')
-            mouse_multi: it[3].toString().contains('.mouse_multi.sam')
-            unassigned: it[3].toString().contains('.unassigned.sam')
-            unresolved: it[3].toString().contains('.unresolved.sam')
-}.set{ch_human_sams_tuple_reordered_branched}
+   ch_human_bams_tuple_reordered.branch{
+            human: it[3].toString().contains('.human.bam')
+            human_multi: it[3].toString().contains('.human_multi.bam')
+            mouse: it[3].toString().contains('.mouse.bam')
+            mouse_multi: it[3].toString().contains('.mouse_multi.bam')
+            unassigned: it[3].toString().contains('.unassigned.bam')
+            unresolved: it[3].toString().contains('.unresolved.bam')
+}.set{ch_human_bams_tuple_reordered_branched}
 
 
 //remap meta ID to get unique value
 //ch_human_sams_tuple_reordered_branched.human.map { it ->  [it[0].id  = it[0].id.replace("_human","_human_only.xeno"), it.tail()] }.set{ch_human_sams_tuple_reordered_branched_id_human}
 //{ meta, other -> {  meta[key] = value ; return [ meta, other ] } }
-ch_human_sams_tuple_reordered_branched.human.map { 
+ch_human_bams_tuple_reordered_branched.human.map { 
 		it ->  { 
 		 def meta_new = it[0].clone()
 		 meta_new.id   = it[0].id.replace("_human","_human_only.xeno") ; 
 		 return [meta_new, it.tail()]
 		}
-	}.set{ch_human_sams_tuple_reordered_branched_id_human}
+	}.set{ch_human_bams_tuple_reordered_branched_id_human}
 // def dup = meta.clone()
 //            dup.id = 'foo'
 //            dup
@@ -433,10 +436,10 @@ ch_human_sams_tuple_reordered_branched.human.map {
         //BAM_SORT_INDEX_SAMTOOLS_XENO (ch_human_sams_tuple.map{ it -> [it[0], it[0], it[2], it[3], it[1]]} ,  params.call_variants, ch_fasta )
         //BAM_SORT_INDEX_SAMTOOLS_XENO (ch_human_sams_tuple_reordered_branched.human,  params.call_variants, ch_fasta )
         //BAM_SORT_INDEX_SAMTOOLS_XENO (ch_human_sams,  params.call_variants, ch_fasta )
-        BAM_SORT_INDEX_SAMTOOLS_XENO (ch_human_sams_tuple_reordered_branched_id_human.map{ it -> it.flatten()},  params.call_variants, ch_fasta )
+        BAM_SORT_INDEX_SAMTOOLS_XENO_FROM_BAM (ch_human_sams_tuple_reordered_branched_id_human.map{ it -> it.flatten()},  params.call_variants, ch_fasta )
 
 
-        BAM_SORT_INDEX_SAMTOOLS_XENO.out.sortbam 
+        BAM_SORT_INDEX_SAMTOOLS_XENO_FROM_BAM.out.sortbam 
             .map { it -> [ it[0], it[3] ] }
             .set { ch_sortbam_xeno }
 
